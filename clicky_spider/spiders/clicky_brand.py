@@ -48,19 +48,23 @@ class ClickySpider(scrapy.Spider):
 
     def parse_products_items(self, response):
 
-        delivery_time = response.xpath('//div[@class="delivery-time-img"]/following-sibling::div/div/text()').getall()
-        delivery_time = re.findall(r':\s(\d+-\d+\s[A-z]+)', delivery_time[0])
-        delivery_time = ''.join(delivery_time)
+        delivery_time = response.xpath('//div[@class="delivery-time-img"]/following-sibling::div/div/text()').get()
+        delivery_time_case_1 = re.findall(r'(\d+)-\d+\s(Hours|days|Days)', delivery_time)
+        delivery_time_case_2 = re.findall(r'same day', delivery_time)
 
-        if not delivery_time:
-            delivery_time = None
+        if 'same day' in delivery_time_case_2:
+            delivery_time_case_2 = 'Today'
 
-        delivery_cities = response.xpath('//div[@class="delivery-time-img"]/following-sibling::div/div/text()').getall()
-        delivery_cities = re.findall(r'(.*?):', delivery_cities[0])
-        delivery_cities = ''.join(delivery_cities)
+        elif '0' in delivery_time or 'Order will be dispatched after 25th October' in delivery_time:
+            delivery_time_case_2 = None
+
+        else:
+            delivery_time_case_2 = ' '.join(delivery_time_case_1[0])
 
         sizes = response.css('.sizes_main_box  .size_heading + div span::text').getall()
         sizes = ''.join(sizes)
+        if 'free size' in sizes.casefold():
+            sizes = 'NO SIZE'
 
         price_new = response.css('span.set::text').get()
         price_new = Price.fromstring(price_new)
@@ -68,23 +72,24 @@ class ClickySpider(scrapy.Spider):
         price_old = response.css('.price-hot h2 del::text').get()
         price_old = Price.fromstring(price_old)
 
-        categories = response.css('.breadcrumb span a::text').getall()
-        categories = ' > '.join(categories)
+        sku = response.url
+        sku = re.findall(r'id=(.*)', sku)
+
+        image_urls = re.findall(r'large:"(https:.*?)"', response.text)
 
         yield {
 
-            'name': response.css('.p_name::text').get('').strip(),
+            'title': response.css('.p_name::text').get('').strip().capitalize(),
             'brand': response.css('.product_style_code:contains("By")::text').get('').replace('By', '').replace(' :', '').strip(),
             'style': response.css('.product_style_code:contains("Style")::text').get('').replace('Style', '').replace(' :', '').strip(),
-            'old_price': price_old.amount,
-            'new_price': price_new.amount,
+            'sku': sku[0],
+            'price_was': price_old.amount_float,
+            'price_now': price_new.amount_float,
             'discount': response.css('span.set + span.percentage-text::text').get('').replace('(-', '').replace(')', '').replace('-', '').strip(),
-            'sizes': sizes.split(),
-            'categories': categories,
+            'size': sizes.split(),
             'reviews': response.css('.review-box span::text').get(),
-            'image_url': response.css('.links-categories .sub-category-link .sub-cat-img img::attr(src)').getall(),
-            'delivery_time': delivery_time,
-            'delivery_cities': delivery_cities.split(),
+            'image_urls': image_urls,
+            'delivery_time': delivery_time_case_2,
             'url': response.url
 
         }
